@@ -1,0 +1,38 @@
+{
+  "name": "let-them-review",
+  "version": "1.0.0",
+  "description": "AI-enhanced code review system with ReviewBot and FixBot",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "review": "node src/review-bot/index.js",
+    "fix": "node src/fix-bot/index.js",
+    "test": "jest",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
+  },
+  "keywords": [
+    "ai",
+    "code-review",
+    "github",
+    "automation",
+    "claude",
+    "mcp"
+  ],
+  "author": "Planview",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "@octokit/rest": "^20.0.2",
+    "diff": "^5.1.0",
+    "node-fetch": "^3.3.2",
+    "yaml": "^2.3.4"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
