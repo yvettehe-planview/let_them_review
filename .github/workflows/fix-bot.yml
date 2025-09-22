@@ -1,0 +1,60 @@
+name: FixBot - Automated Code Fixes
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  auto-fix:
+    runs-on: ubuntu-latest
+    name: Automated Code Fixes
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@fixbot')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@fixbot'))
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: |
+          npm install
+          
+      - name: Run FixBot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          COMMENT_BODY: ${{ github.event.comment.body || github.event.review.body }}
+        run: |
+          node src/fix-bot/index.js
+          
+      - name: Commit and Push Changes
+        if: success()
+        run: |
+          git config --local user.email "fixbot@planview.com"
+          git config --local user.name "FixBot"
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git add .
+            git commit -m "🤖 FixBot: Automated code improvements"
+            git push
+          fi
