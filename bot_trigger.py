@@ -43,3 +43,17 @@ async def trigger_bot(bot_name: str, instruction: str, repo_name: str = None, pr
 def run_bot(bot_name: str, instruction: str, repo_name: str = None, pr_number: int = None):
     """Synchronous wrapper for trigger_bot"""
     return asyncio.run(trigger_bot(bot_name, instruction, repo_name, pr_number))
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Trigger AI bots for code review')
+    parser.add_argument('--bot_name', required=True, choices=['review', 'fix'], help='Bot to trigger')
+    parser.add_argument('--instruction', required=True, help='Custom instruction for the bot')
+    parser.add_argument('--repo_name', required=True, help='Repository (owner/repo)')
+    parser.add_argument('--pr_number', required=True, type=int, help='PR number')
+    
+    args = parser.parse_args()
+    
+    result = run_bot(args.bot_name, args.instruction, args.repo_name, args.pr_number)
+    print(result)
