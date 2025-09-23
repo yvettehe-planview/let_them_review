@@ -31,7 +31,12 @@ class FixBot:
                     else:
                         print(f"❌ No fixable keywords found")
             
-            return fixes_applied or ["No fixes generated"]
+            if not fixes_applied:
+                # Post positive feedback when no fixes are needed
+                pr.create_issue_comment("✅ **FixBot - Code looks good!**\n\nNo issues found that require fixes. Great work!")
+                return ["No fixes needed - posted positive feedback"]
+            
+            return fixes_applied
         except Exception as e:
             return [f"Error creating fixes: {str(e)}"]
     
