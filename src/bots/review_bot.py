@@ -16,8 +16,8 @@ class ReviewBot:
         self.model_name = "anthropic.claude-3-5-sonnet-20241022-v2:0" 
         return self.model_name
     
-    async def review_pr(self, repo_name: str, pr_number: int):
-        """Review a specific PR"""
+    async def review_pr(self, repo_name: str, pr_number: int, custom_instruction: str = None):
+        """Review a specific PR with optional custom instruction"""
         try:
             # Get PR details
             repo = self.github.get_repo(repo_name)
@@ -48,7 +48,7 @@ class ReviewBot:
             for file in reviewable_files:
                 if file.patch:
                     # Call AI API for code review
-                    ai_review = self._get_ai_review(file.filename, file.patch)
+                    ai_review = self._get_ai_review(file.filename, file.patch, custom_instruction)
                     
                     # Post AI review as PR comment
                     pr.create_issue_comment(f"🤖 **AI Review for {file.filename}:**\n{ai_review}")
@@ -64,9 +64,9 @@ class ReviewBot:
         except Exception as e:
             return [f"Error reviewing PR: {str(e)}"]
     
-    def _get_ai_review(self, filename: str, patch: str) -> str:
+    def _get_ai_review(self, filename: str, patch: str, custom_instruction: str = None) -> str:
         """Get AI review for a code patch"""
-        prompt = f"""Review ONLY the changed lines in this code diff:
+        base_prompt = f"""Review ONLY the changed lines in this code diff:
 
 File: {filename}
 Code changes (diff):
@@ -77,6 +77,12 @@ Provide a brief review focusing on:
 2. Quick suggestions for improvement
 
 Keep response under 3 sentences. Be concise."""
+        
+        if custom_instruction:
+            prompt = f"{base_prompt}\n\nAdditional instruction: {custom_instruction}"
+        else:
+            prompt = base_prompt
+            
         return self._call_falcon_ai(prompt)
     
     def _get_ai_summary(self, title: str, description: str, changes: str) -> str:
