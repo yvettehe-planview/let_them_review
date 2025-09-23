@@ -27,8 +27,9 @@ class ReviewBot:
             changes = list(pr.get_files())
             review_comments = []
             
-            # Generate AI summary
-            python_files = [f for f in changes if f.filename.endswith('.py')]
+            # Filter files that should be reviewed (code files)
+            reviewable_extensions = ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.scala', '.cs', '.jsx', '.tsx', '.vue', '.html', '.css', '.scss', '.sql', '.sh', '.yml', '.yaml', '.json', '.xml']
+            reviewable_files = [f for f in changes if any(f.filename.endswith(ext) for ext in reviewable_extensions)]
             
             # Collect all changes for AI analysis
             all_changes = ""
@@ -43,8 +44,8 @@ class ReviewBot:
             pr.create_issue_comment(f"🤖 **AI Summary:**\n{ai_summary}")
             review_comments.append(f"🤖 AI Summary:\n{ai_summary}")
             
-            # AI review each Python file
-            for file in python_files:
+            # AI review each reviewable file
+            for file in reviewable_files:
                 if file.patch:
                     # Call AI API for code review
                     ai_review = self._get_ai_review(file.filename, file.patch)
@@ -52,6 +53,11 @@ class ReviewBot:
                     # Post AI review as PR comment
                     pr.create_issue_comment(f"🤖 **AI Review for {file.filename}:**\n{ai_review}")
                     review_comments.append(f"🤖 {file.filename}:\n{ai_review}")
+            
+            # If no reviewable files, post positive feedback
+            if not reviewable_files:
+                pr.create_issue_comment("✅ **ReviewBot - No code files to review!**\n\nThis PR doesn't contain code changes that need review.")
+                review_comments.append("No reviewable files found for review")
             
             return review_comments
                     
