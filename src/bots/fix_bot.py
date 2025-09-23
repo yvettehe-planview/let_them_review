@@ -20,28 +20,48 @@ class FixBot:
             fixes_applied = []
             
             for comment in review_comments:
-                print(f"🔍 Checking comment: {comment[:100]}...")
                 if isinstance(comment, str) and "🤖" in comment:
-                    # Look for any review content, not just specific keywords
-                    if any(word in comment.lower() for word in ["issues", "error", "bug", "security", "concerns", "suggestions", "review"]):
-                        print(f"✅ Found fixable comment")
+                    # Skip AI Summary - only process file-specific reviews
+                    if "AI Summary:" in comment:
+                        continue
+                    
+                    # Use AI to decide if this comment needs a fix
+                    needs_fix = await self._ai_should_fix(comment)
+                    if needs_fix:
                         fix_result = await self._create_suggested_fix(repo, pr, comment)
-                        if fix_result:
+                        if fix_result and "Created suggested change" in fix_result:
                             fixes_applied.append(fix_result)
-                    else:
-                        print(f"❌ No fixable keywords found")
             
-            return fixes_applied or ["No fixes generated"]
+            if not fixes_applied:
+                # Post positive feedback when no fixes are needed
+                pr.create_issue_comment("✅ **FixBot - Code looks good!**\n\nNo issues found that require fixes. Great work!")
+                return ["No fixes needed - posted positive feedback"]
+            
+            return fixes_applied
         except Exception as e:
             return [f"Error creating fixes: {str(e)}"]
     
     async def _create_suggested_fix(self, repo, pr, review_comment):
         """Create GitHub suggested change for the fix"""
         try:
-            filename = re.findall(r'([a-zA-Z0-9_/.-]+\.py)', review_comment)
+            # Try multiple patterns to extract filename (any file type)
+            patterns = [
+                r'🤖 ([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+):',  # "🤖 file.ext:"
+                r'([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+):',     # "file.ext:"
+                r'`([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)`',    # "`file.ext`"
+                r'([a-zA-Z0-9_/.-]+\.[a-zA-Z0-9]+)',      # Any file with extension
+            ]
+            
+            filename = None
+            for pattern in patterns:
+                matches = re.findall(pattern, review_comment)
+                if matches:
+                    filename = matches[0]
+
+                    break
+            
             if not filename:
                 return "Could not identify file to fix"
-            filename = filename[0]
             
             # Get file patch
             file_patch = None
@@ -106,6 +126,20 @@ Provide only the fixed code lines.""")
             return f"API error {response.status_code}"
         except Exception as e:
             return f"Falcon AI failed: {str(e)}"
+    
+    async def _ai_should_fix(self, review_comment: str) -> bool:
+        """Use AI to determine if this review comment requires a code fix"""
+        try:
+            decision = self._call_falcon_ai(f"""Analyze this code review comment and decide if it requires a code fix:
+
+Review Comment: {review_comment}
+
+Respond with only "YES" if the comment identifies specific issues that need code changes, or "NO" if it's just informational, positive feedback, or general suggestions that don't require immediate code fixes.""")
+            
+            return "YES" in decision.upper()
+        except Exception:
+            # Fallback to conservative approach - assume fix is needed
+            return True
     
     def _get_line_from_patch(self, patch: str) -> int:
         """Extract line number from patch"""
