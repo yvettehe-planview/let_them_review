@@ -60,40 +60,30 @@ class ReviewBot:
     
     def _get_ai_review(self, filename: str, patch: str) -> str:
         """Get AI review for a code patch"""
-        prompt = f"""Review this Python code change and provide specific suggestions:
+        prompt = f"""Review ONLY the changed lines in this code diff:
 
 File: {filename}
-Code changes:
+Code changes (diff):
 {patch}
 
-Provide a detailed code review with:
-1. Code quality issues
-2. Security concerns  
-3. Performance improvements
-4. Best practices suggestions
-5. Bug detection
+Provide a brief review focusing on:
+1. Issues in the changed lines only
+2. Quick suggestions for improvement
 
-Be specific and actionable."""
+Keep response under 3 sentences. Be concise."""
         return self._call_falcon_ai(prompt)
     
     def _get_ai_summary(self, title: str, description: str, changes: str) -> str:
         """Get AI summary of the entire PR"""
-        prompt = f"""Analyze this Pull Request and provide a comprehensive summary:
+        prompt = f"""Summarize this PR in 2-3 sentences:
 
 PR Title: {title}
 Description: {description}
 
 Code Changes:
-{changes[:3000]}
+{changes[:1000]}
 
-Provide:
-1. What this PR does (main purpose)
-2. Key changes made
-3. Potential impact
-4. Overall code quality assessment
-5. Recommendations
-
-Be concise but thorough."""
+What does this PR do and any major concerns?"""
         return self._call_falcon_ai(prompt)
     
     def _call_falcon_ai(self, prompt: str) -> str:
