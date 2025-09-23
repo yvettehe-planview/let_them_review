@@ -12,7 +12,7 @@ class FixBot:
         self.falcon_api_key = os.getenv('FALCON_API_KEY')
         self.base_url = "https://falconai.planview-prod.io"
     
-    async def fix_code(self, repo_name: str, pr_number: int, review_comments: list):
+    async def fix_code(self, repo_name: str, pr_number: int, review_comments: list, custom_instruction: str = None):
         """Generate AI-powered fixes as GitHub suggested changes"""
         try:
             repo = self.github.get_repo(repo_name)
@@ -28,7 +28,7 @@ class FixBot:
                     # Use AI to decide if this comment needs a fix
                     needs_fix = await self._ai_should_fix(comment)
                     if needs_fix:
-                        fix_result = await self._create_suggested_fix(repo, pr, comment)
+                        fix_result = await self._create_suggested_fix(repo, pr, comment, custom_instruction)
                         if fix_result and "Created suggested change" in fix_result:
                             fixes_applied.append(fix_result)
             
@@ -41,7 +41,7 @@ class FixBot:
         except Exception as e:
             return [f"Error creating fixes: {str(e)}"]
     
-    async def _create_suggested_fix(self, repo, pr, review_comment):
+    async def _create_suggested_fix(self, repo, pr, review_comment, custom_instruction: str = None):
         """Create GitHub suggested change for the fix"""
         try:
             # Try multiple patterns to extract filename (any file type)
@@ -74,12 +74,19 @@ class FixBot:
                 return f"Could not find changes for {filename}"
             
             # Generate fix with AI
-            fixed_code = self._call_falcon_ai(f"""Fix the changed lines in this diff:
+            base_prompt = f"""Fix the changed lines in this diff:
 
 Review: {review_comment}
 Diff: {file_patch}
 
-Provide only the fixed code lines.""")
+Provide only the fixed code lines."""
+            
+            if custom_instruction:
+                prompt = f"{base_prompt}\n\nAdditional instruction: {custom_instruction}"
+            else:
+                prompt = base_prompt
+                
+            fixed_code = self._call_falcon_ai(prompt)
             
             if "API error" in fixed_code or "failed" in fixed_code:
                 fixed_code = "# TODO: Address code review feedback"
