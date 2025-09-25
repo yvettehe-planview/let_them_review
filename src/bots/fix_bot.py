@@ -228,39 +228,7 @@ class FixBot:
         except Exception as e:
             print(f"Failed to parse AI response: {str(e)}")
             print(f"AI response was: {response[:200]}...")
-            # Create meaningful fallbacks based on the review content
-            fallback_fixes = []
-            
-            if "loading state" in review_comment.lower():
-                fallback_fixes.append({
-                    'issue': 'Add loading state',
-                    'code': 'const [isDeleting, setIsDeleting] = useState(false);',
-                    'confidence': 0.85
-                })
-            
-            if "promise.all" in review_comment.lower() or "batch" in review_comment.lower():
-                fallback_fixes.append({
-                    'issue': 'Use Promise.all for batch operations',
-                    'code': 'await Promise.all(songs.map(song => deleteSong(song.id)))',
-                    'confidence': 0.8
-                })
-            
-            if "rate limiting" in review_comment.lower():
-                fallback_fixes.append({
-                    'issue': 'Add rate limiting',
-                    'code': 'setIsDeleting(true); // Disable button during operation',
-                    'confidence': 0.75
-                })
-            
-            # If no specific fixes found, create a generic one
-            if not fallback_fixes:
-                fallback_fixes.append({
-                    'issue': 'Implement review suggestions',
-                    'code': '// Add loading state and error handling as suggested',
-                    'confidence': 0.6
-                })
-            
-            return fallback_fixes
+            return []
     
     async def _analyze_pr_for_fixes(self, repo, pr, instruction: str, custom_instruction: str = None, comment_id: int = None, comment_type: str = "issue_comment"):
         """Analyze entire PR for fixes when directly mentioned"""
