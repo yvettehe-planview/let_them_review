@@ -26,6 +26,10 @@ class FixBot:
                 self._post_comment(repo_name, pr_number, f"🤖 **FixBot:**\n{response}", comment_id, comment_type)
                 return [f"Direct response: {response}"]
             
+            # If no review_comments provided, fetch them from the PR
+            if not review_comments:
+                review_comments = await self._fetch_reviewbot_comments(repo, pr)
+            
             # Process ReviewBot comments to create fixes
             for comment in review_comments:
                 if isinstance(comment, str) and "🤖" in comment and "SUGGEST_FIX" in comment:
@@ -223,6 +227,19 @@ class FixBot:
         )
         
         return self._call_falcon_ai(prompt)
+    
+    async def _fetch_reviewbot_comments(self, repo, pr) -> list:
+        """Fetch ReviewBot comments from the PR"""
+        try:
+            comments = []
+            # Get issue comments (general PR comments)
+            for comment in pr.get_issue_comments():
+                if comment.body and "🤖" in comment.body:
+                    comments.append(comment.body)
+            return comments
+        except Exception as e:
+            print(f"Error fetching ReviewBot comments: {str(e)}")
+            return []
     
     def _get_line_from_patch(self, patch: str) -> int:
         """Extract line number from patch"""
