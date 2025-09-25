@@ -61,7 +61,7 @@ class ReviewBot:
                     ai_review = self._get_ai_review(file.filename, file.patch, custom_instruction)
                     review_text = f"🤖 **AI Review for {file.filename}:**\n{ai_review}"
                     self._post_comment(repo_name, pr_number, review_text, comment_id, comment_type)
-                    review_comments.append(f"🤖 {file.filename}:\n{ai_review}")
+                    review_comments.append(review_text)  # Return the same format as posted
 
             # Handle case with no reviewable files
             if not reviewable_files:
