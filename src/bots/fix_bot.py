@@ -26,14 +26,11 @@ class FixBot:
                 self._post_comment(repo_name, pr_number, f"🤖 **FixBot:**\n{response}", comment_id, comment_type)
                 return [f"Direct response: {response}"]
             
-            # Otherwise, process review comments for fixes
+            # Process ReviewBot comments to create fixes
             for comment in review_comments:
-                if isinstance(comment, str):
-                    if "🤖" in comment and "AI Summary:" not in comment:
-                        fix_result = await self._create_suggested_fix(repo, pr, comment, custom_instruction, comment_id, comment_type)
-                    else:
-                        fix_result = await self._analyze_pr_for_fixes(repo, pr, comment, custom_instruction, comment_id, comment_type)
-                    
+                if isinstance(comment, str) and "🤖" in comment and "SUGGEST_FIX" in comment:
+                    # Only process ReviewBot's suggestions that need fixes
+                    fix_result = await self._create_suggested_fix(repo, pr, comment, custom_instruction, comment_id, comment_type)
                     if fix_result and "Created" in fix_result:
                         fixes_applied.append(fix_result)
             
@@ -98,16 +95,15 @@ class FixBot:
                 confidence_emoji = "🟢" if fix['confidence'] >= 0.9 else "🟡"
                 guidance = self._get_guidance(fix['confidence'])
                 
+                body = (
+                    f"🔧 **FixBot Suggestion #{i+1}** {confidence_emoji}\n\n"
+                    f"```suggestion\n{fix['code']}\n```\n\n"
+                    f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n\n"
+                    f"{guidance}"
+                )
+                
                 pr.create_review_comment(
-                    body=f"""🔧 **FixBot Suggestion #{i+1}** {confidence_emoji}
-
-```suggestion
-{fix['code']}
-```
-
-**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}
-
-{guidance}""",
+                    body=body,
                     commit=pr.head.sha,
                     path=filename,
                     line=fix.get('line', self._get_line_from_patch(file_patch))
@@ -160,17 +156,17 @@ class FixBot:
             return f"API error {response.status_code}"
         except Exception as e:
             return f"Falcon AI failed: {str(e)}"
-    
+
     async def _generate_partial_fixes(self, review_comment: str, file_patch: str, custom_instruction: str = None) -> list:
         """Generate multiple targeted fixes with confidence scores"""
-        prompt = f"""Analyze this code review and create targeted fixes:
-
-Review: {review_comment}
-Diff: {file_patch}
-
-Provide JSON array: [{{"issue": "Brief description", "code": "Fixed code", "confidence": 0.95, "line": 10}}]
-
-Create separate fixes for different issues. Confidence: 0.0-1.0 scale."""
+        prompt = (
+            "Analyze this code review and create targeted fixes:\n\n"
+            f"Review: {review_comment}\n"
+            f"Diff: {file_patch}\n\n"
+            'Provide JSON array: [{"issue": "Brief description", "code": "Fixed code", '
+            '"confidence": 0.95, "line": 10}]\n\n'
+            "Create separate fixes for different issues. Confidence: 0.0-1.0 scale."
+        )
         
         if custom_instruction:
             prompt += f"\n\nAdditional instruction: {custom_instruction}"
@@ -216,16 +212,15 @@ Create separate fixes for different issues. Confidence: 0.0-1.0 scale."""
         if len(list(pr.get_files())) > 5:
             files_summary += "..."
         
-        prompt = f"""Answer this question about a GitHub PR from a code fixing perspective:
-
-Question: {question}
-
-PR Context:
-- Title: {pr.title}
-- Description: {pr.body or 'No description'}
-- Files changed: {files_summary}
-
-Provide a direct, helpful answer focused on code improvements and fixes in 2-3 sentences."""
+        prompt = (
+            "Answer this question about a GitHub PR from a code fixing perspective:\n\n"
+            f"Question: {question}\n\n"
+            "PR Context:\n"
+            f"- Title: {pr.title}\n"
+            f"- Description: {pr.body or 'No description'}\n"
+            f"- Files changed: {files_summary}\n\n"
+            "Provide a direct, helpful answer focused on code improvements and fixes in 2-3 sentences."
+        )
         
         return self._call_falcon_ai(prompt)
     
