@@ -26,8 +26,8 @@ async def trigger_bot(bot_name: str, instruction: str, repo_name: str = None, pr
         elif bot_name.lower() == "fix":
             bot = FixBot()
             if repo_name and pr_number:
-                # Get existing review comments and apply custom instruction
-                result = await bot.fix_code(repo_name, pr_number, [instruction], custom_instruction=instruction, comment_id=comment_id, comment_type=comment_type)
+                # FixBot will fetch ReviewBot comments from the PR automatically
+                result = await bot.fix_code(repo_name, pr_number, [], custom_instruction=instruction, comment_id=comment_id, comment_type=comment_type)
             else:
                 result = {"error": "FixBot requires repo_name and pr_number"}
         
