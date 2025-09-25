@@ -84,7 +84,8 @@ class ReviewBot:
             "Provide a brief review focusing on:\n"
             "1. Issues in the changed lines only\n"
             "2. Quick suggestions for improvement\n\n"
-            "Keep response under 3 sentences. Be concise."
+            "Keep response under 3 sentences. Be concise.\n\n"
+            "If you identify issues that need code fixes, end your response with: SUGGEST_FIX"
         )
 
         if custom_instruction:
@@ -93,39 +94,8 @@ class ReviewBot:
             prompt = base_prompt
 
         ai_review = self._call_falcon_ai(prompt)
-
-        # Add SUGGEST_FIX marker using Python logic
-        if self._needs_fixes(ai_review):
-            ai_review += " SUGGEST_FIX"
-
         return ai_review
-
-    def _needs_fixes(self, review_text: str) -> bool:
-        """Determine if the review suggests fixes are needed"""
-        fix_keywords = [
-            'add', 'fix', 'change', 'update', 'remove', 'replace', 'implement',
-            'should', 'need', 'must', 'require', 'recommend', 'suggest',
-            'missing', 'error', 'issue', 'problem', 'bug', 'vulnerability',
-            'improve', 'optimize', 'refactor', 'validate', 'check'
-        ]
-
-        positive_keywords = [
-            'good', 'clean', 'correct', 'proper', 'well', 'fine', 'ok', 'okay',
-            'looks good', 'no issues', 'follows best practices'
-        ]
-
-        review_lower = review_text.lower()
-
-        # If it contains positive feedback, probably no fixes needed
-        if any(pos in review_lower for pos in positive_keywords):
-            return False
-
-        # If it contains fix-related keywords, probably needs fixes
-        if any(fix in review_lower for fix in fix_keywords):
-            return True
-
-        return False
-
+    
     def _get_ai_summary(self, title: str, description: str, changes: str) -> str:
         """Get AI summary of the entire PR"""
         prompt = (
