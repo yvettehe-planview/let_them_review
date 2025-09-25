@@ -16,47 +16,45 @@ class ReviewBot:
         self.model_name = "anthropic.claude-3-5-sonnet-20241022-v2:0" 
         return self.model_name
     
-    async def review_pr(self, repo_name: str, pr_number: int, custom_instruction: str = None):
+    async def review_pr(self, repo_name: str, pr_number: int, custom_instruction: str = None, comment_id: int = None, comment_type: str = "issue_comment"):
         """Review a specific PR with optional custom instruction"""
         try:
-            # Get PR details
             repo = self.github.get_repo(repo_name)
             pr = repo.get_pull(pr_number)
             
-            # Get PR changes
+            # If there's a custom instruction and comment_id, respond directly to the question
+            if custom_instruction and comment_id:
+                response = await self._answer_question(pr, custom_instruction)
+                self._post_comment(repo_name, pr_number, f"🤖 **ReviewBot:**\n{response}", comment_id, comment_type)
+                return [f"Direct response: {response}"]
+            
+            # Otherwise, do full PR analysis
             changes = list(pr.get_files())
             review_comments = []
             
-            # Filter files that should be reviewed (code files)
             reviewable_extensions = ['.py', '.js', '.ts', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.scala', '.cs', '.jsx', '.tsx', '.vue', '.html', '.css', '.scss', '.sql', '.sh', '.yml', '.yaml', '.json', '.xml']
             reviewable_files = [f for f in changes if any(f.filename.endswith(ext) for ext in reviewable_extensions)]
             
-            # Collect all changes for AI analysis
             all_changes = ""
             for file in changes:
                 if file.patch:
                     all_changes += f"\n--- {file.filename} ---\n{file.patch}\n"
             
-            # Get AI summary
             ai_summary = self._get_ai_summary(pr.title, pr.body or "No description", all_changes)
-            
-            # Post AI summary as PR comment
-            pr.create_issue_comment(f"🤖 **AI Summary:**\n{ai_summary}")
+            summary_text = f"🤖 **AI Summary:**\n{ai_summary}"
+            self._post_comment(repo_name, pr_number, summary_text, comment_id, comment_type)
             review_comments.append(f"🤖 AI Summary:\n{ai_summary}")
             
-            # AI review each reviewable file
             for file in reviewable_files:
                 if file.patch:
-                    # Call AI API for code review
                     ai_review = self._get_ai_review(file.filename, file.patch, custom_instruction)
-                    
-                    # Post AI review as PR comment
-                    pr.create_issue_comment(f"🤖 **AI Review for {file.filename}:**\n{ai_review}")
+                    review_text = f"🤖 **AI Review for {file.filename}:**\n{ai_review}"
+                    self._post_comment(repo_name, pr_number, review_text, comment_id, comment_type)
                     review_comments.append(f"🤖 {file.filename}:\n{ai_review}")
             
-            # If no reviewable files, post positive feedback
             if not reviewable_files:
-                pr.create_issue_comment("✅ **ReviewBot - No code files to review!**\n\nThis PR doesn't contain code changes that need review.")
+                no_files_text = "✅ **ReviewBot - No code files to review!**\n\nThis PR doesn't contain code changes that need review."
+                self._post_comment(repo_name, pr_number, no_files_text, comment_id, comment_type)
                 review_comments.append("No reviewable files found for review")
             
             return review_comments
@@ -133,3 +131,40 @@ What does this PR do and any major concerns?"""
                 
         except Exception as e:
             return f"Falcon AI call failed: {str(e)}"
+    
+    async def _answer_question(self, pr, question: str) -> str:
+        """Answer a specific question about the PR"""
+        # Get basic PR context
+        files_summary = ", ".join([f.filename for f in pr.get_files()][:5])
+        if len(list(pr.get_files())) > 5:
+            files_summary += "..."
+        
+        prompt = f"""Answer this question about a GitHub PR:
+
+Question: {question}
+
+PR Context:
+- Title: {pr.title}
+- Description: {pr.body or 'No description'}
+- Files changed: {files_summary}
+
+Provide a direct, helpful answer in 2-3 sentences."""
+        
+        return self._call_falcon_ai(prompt)
+    
+    def _post_comment(self, repo_name: str, pr_number: int, text: str, comment_id: int = None, comment_type: str = "issue_comment"):
+        """Post comment as reply or new comment based on type"""
+        try:
+            repo = self.github.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            
+            if comment_id and comment_type == "review_comment":
+                try:
+                    pr.create_review_comment_reply(comment_id, text)
+                except Exception as e:
+                    print(f"Failed to reply to review comment: {str(e)}")
+                    pr.create_issue_comment(text)
+            else:
+                pr.create_issue_comment(text)
+        except Exception as e:
+            print(f"Error posting comment: {str(e)}")
