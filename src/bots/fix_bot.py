@@ -54,7 +54,7 @@ class FixBot:
                 return f"Could not find changes for {filename}"
             
             fixes = await self._generate_partial_fixes(review_comment, file_patch, custom_instruction)
-            suggestions_created = self._create_suggestions(pr, fixes, filename, file_patch)
+            suggestions_created = self._create_suggestions(pr, fixes, filename, file_patch, comment_id, comment_type)
             
             if suggestions_created > 0:
                 summary_text = f"🤖 **FixBot Analysis for {filename}**\n\n✅ Created {suggestions_created} suggestions"
@@ -86,7 +86,7 @@ class FixBot:
                 return f.patch
         return None
     
-    def _create_suggestions(self, pr, fixes: list, filename: str, file_patch: str) -> int:
+    def _create_suggestions(self, pr, fixes: list, filename: str, file_patch: str, comment_id: int = None, comment_type: str = "issue_comment") -> int:
         """Create GitHub suggestions for high-confidence fixes"""
         suggestions_created = 0
         
@@ -95,20 +95,43 @@ class FixBot:
                 confidence_emoji = "🟢" if fix['confidence'] >= 0.9 else "🟡"
                 guidance = self._get_guidance(fix['confidence'])
                 
-                body = (
-                    f"🔧 **FixBot Suggestion #{i+1}** {confidence_emoji}\n\n"
-                    f"```suggestion\n{fix['code']}\n```\n\n"
-                    f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n\n"
-                    f"{guidance}"
-                )
-                
-                pr.create_review_comment(
-                    body=body,
-                    commit=pr.head.sha,
-                    path=filename,
-                    line=fix.get('line', self._get_line_from_patch(file_patch))
-                )
-                suggestions_created += 1
+                # When comment_type is issue_comment or no comment_id, create regular comments
+                if comment_type == "issue_comment" or not comment_id:
+                    body = (
+                        f"🔧 **FixBot Suggestion #{i+1} for {filename}** {confidence_emoji}\n\n"
+                        f"```{filename.split('.')[-1]}\n{fix['code']}\n```\n\n"
+                        f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n\n"
+                        f"{guidance}"
+                    )
+                    try:
+                        pr.create_issue_comment(body)
+                        suggestions_created += 1
+                    except Exception as e:
+                        print(f"Failed to create issue comment: {str(e)}")
+                else:
+                    # For review_comment type, try inline suggestions
+                    body = (
+                        f"🔧 **FixBot Suggestion #{i+1}** {confidence_emoji}\n\n"
+                        f"```suggestion\n{fix['code']}\n```\n\n"
+                        f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n\n"
+                        f"{guidance}"
+                    )
+                    try:
+                        pr.create_review_comment(
+                            body=body,
+                            commit=pr.head.sha,
+                            path=filename,
+                            line=fix.get('line', self._get_line_from_patch(file_patch))
+                        )
+                        suggestions_created += 1
+                    except Exception as e:
+                        print(f"Failed to create review comment: {str(e)}")
+                        # Fallback to regular comment
+                        try:
+                            pr.create_issue_comment(f"**FixBot Suggestion for {filename}:**\n\n{body}")
+                            suggestions_created += 1
+                        except Exception as e2:
+                            print(f"Failed to create fallback comment: {str(e2)}")
         
         return suggestions_created
     
