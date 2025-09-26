@@ -155,7 +155,7 @@ class FixBot:
             else:
                 pr.create_issue_comment(text)
         except Exception as e:
-            print(f"Error posting comment: {str(e)}")
+            print(f"Error posting comment: {str(e)}, comment_id: {comment_id}, text: {text}")
     
     def _call_falcon_ai(self, prompt: str) -> str:
         """Make API call to Falcon AI"""
