@@ -29,17 +29,27 @@ class FixBot:
             pr = repo.get_pull(pr_number)
             fixes_applied = []
 
-            # If there's a custom instruction and comment_id, respond directly to the question
+            # If there's a custom instruction and comment_id, decide whether to fix or answer
             if custom_instruction and comment_id:
-                response = await self._answer_question(pr, custom_instruction)
-                self._post_comment(
-                    repo_name,
-                    pr_number,
-                    f"🤖 **FixBot:**\n{response}",
-                    comment_id,
-                    comment_type,
-                )
-                return [f"Direct response: {response}"]
+                should_fix = await self._should_provide_fix(custom_instruction)
+                
+                if should_fix:
+                    # Treat as fix request - analyze PR for fixes
+                    fix_result = await self._analyze_pr_for_fixes(
+                        repo, pr, custom_instruction, custom_instruction, comment_id, comment_type
+                    )
+                    return [fix_result]
+                else:
+                    # Treat as question - provide answer
+                    response = await self._answer_question(pr, custom_instruction, comment_id)
+                    self._post_comment(
+                        repo_name,
+                        pr_number,
+                        f"🤖 **FixBot:**\n{response}",
+                        comment_id,
+                        comment_type,
+                    )
+                    return [f"Direct response: {response}"]
 
             # Otherwise, process review comments for fixes
             for comment in review_comments:
@@ -342,11 +352,47 @@ IMPORTANT:
         except Exception as e:
             return f"Error analyzing PR: {str(e)}"
 
-    async def _answer_question(self, pr, question: str) -> str:
-        """Answer a specific question about the PR"""
+    async def _should_provide_fix(self, instruction: str) -> bool:
+        """Use AI to decide if instruction requires code fixes or just an answer"""
+        prompt = f"""Analyze this user instruction and decide if they want code fixes or just an answer:
+
+Instruction: {instruction}
+
+Respond with only "FIX" if they want code changes/fixes/implementations, or "ANSWER" if they want explanations/questions answered.
+
+Examples:
+- "fix the SQL injection" -> FIX
+- "add error handling" -> FIX  
+- "why is this bad?" -> ANSWER
+- "what does this do?" -> ANSWER"""
+        
+        try:
+            response = self._call_falcon_ai(prompt)
+            return "FIX" in response.upper()
+        except:
+            return False  # Default to answer if AI fails
+    
+    async def _answer_question(self, pr, question: str, comment_id: int = None) -> str:
+        """Answer a specific question about the PR with comment context"""
         files_summary = ", ".join([f.filename for f in pr.get_files()][:5])
         if len(list(pr.get_files())) > 5:
             files_summary += "..."
+
+        # Get comment context if comment_id is provided
+        comment_context = ""
+        if comment_id:
+            try:
+                # Try to get the parent comment for context
+                repo = pr.base.repo
+                comment = repo.get_issue_comment(comment_id)
+                comment_context = f"\n\nComment Context (user is asking about this comment):\n- Author: {comment.user.login}\n- Comment: {comment.body[:300]}..."
+            except:
+                try:
+                    # Try as review comment
+                    comment = pr.get_review_comment(comment_id)
+                    comment_context = f"\n\nComment Context (user is asking about this review comment):\n- Author: {comment.user.login}\n- File: {comment.path}\n- Comment: {comment.body[:300]}..."
+                except:
+                    comment_context = "\n\nNote: User is responding to a specific comment but context unavailable."
 
         prompt = f"""Answer this question about a GitHub PR from a code fixing perspective:
 
@@ -355,9 +401,9 @@ Question: {question}
 PR Context:
 - Title: {pr.title}
 - Description: {pr.body or 'No description'}
-- Files changed: {files_summary}
+- Files changed: {files_summary}{comment_context}
 
-Provide a direct, helpful answer focused on code improvements and fixes in 2-3 sentences."""
+Provide a direct, helpful answer that considers the comment context if available. Focus on code improvements and fixes in 2-3 sentences."""
 
         return self._call_falcon_ai(prompt)
 

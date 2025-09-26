@@ -32,7 +32,7 @@ class ReviewBot:
 
             # If there's a custom instruction and comment_id, respond directly to the question
             if custom_instruction and comment_id:
-                response = await self._answer_question(pr, custom_instruction)
+                response = await self._answer_question(pr, custom_instruction, comment_id)
                 self._post_comment(
                     repo_name,
                     pr_number,
@@ -181,12 +181,28 @@ What does this PR do and any major concerns?"""
         except Exception as e:
             return f"Falcon AI call failed: {str(e)}"
 
-    async def _answer_question(self, pr, question: str) -> str:
-        """Answer a specific question about the PR"""
+    async def _answer_question(self, pr, question: str, comment_id: int = None) -> str:
+        """Answer a specific question about the PR with comment context"""
         # Get basic PR context
         files_summary = ", ".join([f.filename for f in pr.get_files()][:5])
         if len(list(pr.get_files())) > 5:
             files_summary += "..."
+
+        # Get comment context if comment_id is provided
+        comment_context = ""
+        if comment_id:
+            try:
+                # Try to get the parent comment for context
+                repo = pr.base.repo
+                comment = repo.get_issue_comment(comment_id)
+                comment_context = f"\n\nComment Context (user is asking about this comment):\n- Author: {comment.user.login}\n- Comment: {comment.body[:300]}..."
+            except:
+                try:
+                    # Try as review comment
+                    comment = pr.get_review_comment(comment_id)
+                    comment_context = f"\n\nComment Context (user is asking about this review comment):\n- Author: {comment.user.login}\n- File: {comment.path}\n- Comment: {comment.body[:300]}..."
+                except:
+                    comment_context = "\n\nNote: User is responding to a specific comment but context unavailable."
 
         prompt = f"""Answer this question about a GitHub PR:
 
@@ -195,9 +211,9 @@ Question: {question}
 PR Context:
 - Title: {pr.title}
 - Description: {pr.body or 'No description'}
-- Files changed: {files_summary}
+- Files changed: {files_summary}{comment_context}
 
-Provide a direct, helpful answer in 2-3 sentences."""
+Provide a direct, helpful answer that considers the comment context if available. Answer in 2-3 sentences."""
 
         return self._call_falcon_ai(prompt)
 
