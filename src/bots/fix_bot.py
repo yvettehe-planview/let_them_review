@@ -38,6 +38,14 @@ class FixBot:
                     fix_result = await self._analyze_pr_for_fixes(
                         repo, pr, custom_instruction, custom_instruction, comment_id, comment_type
                     )
+                    # Also post inline reply acknowledging the fix request
+                    self._post_comment(
+                        repo_name,
+                        pr_number,
+                        f"🔧 **FixBot:** Working on your request: '{custom_instruction}' - Check the code suggestions above!",
+                        comment_id,
+                        comment_type,
+                    )
                     return [fix_result]
                 else:
                     # Treat as question - provide answer
