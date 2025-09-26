@@ -389,20 +389,25 @@ Examples:
         # Get comment context if comment_id is provided
         comment_context = ""
         if comment_id:
+            print(f"DEBUG: Fetching context for comment_id: {comment_id}")
             try:
                 # Try to get the parent comment for context
-                repo = pr.base.repo
-                comment = repo.get_issue_comment(comment_id)
-                comment_context = f"\n\nComment Context (user is asking about this comment):\n- Author: {comment.user.login}\n- Comment: {comment.body[:300]}..."
-            except:
+                repo_obj = pr.base.repo
+                comment = repo_obj.get_issue_comment(comment_id)
+                comment_context = f"\n\nComment Context (user is asking about this comment):\n- Author: {comment.user.login}\n- Comment: {comment.body[:300]}"
+                print(f"DEBUG: Got issue comment context: {comment.body[:50]}...")
+            except Exception as e:
+                print(f"DEBUG: Issue comment failed: {str(e)}")
                 try:
                     # Try as review comment
                     comment = pr.get_review_comment(comment_id)
-                    comment_context = f"\n\nComment Context (user is asking about this review comment):\n- Author: {comment.user.login}\n- File: {comment.path}\n- Comment: {comment.body[:300]}..."
-                except:
+                    comment_context = f"\n\nComment Context (user is asking about this review comment):\n- Author: {comment.user.login}\n- File: {comment.path}\n- Comment: {comment.body[:300]}"
+                    print(f"DEBUG: Got review comment context: {comment.body[:50]}...")
+                except Exception as e2:
+                    print(f"DEBUG: Review comment failed: {str(e2)}")
                     comment_context = "\n\nNote: User is responding to a specific comment but context unavailable."
 
-        prompt = f"""Answer this question about a GitHub PR from a code fixing perspective:
+        prompt = f"""Answer this question about a GitHub PR:
 
 Question: {question}
 
@@ -411,7 +416,7 @@ PR Context:
 - Description: {pr.body or 'No description'}
 - Files changed: {files_summary}{comment_context}
 
-Provide a direct, helpful answer that considers the comment context if available. Focus on code improvements and fixes in 2-3 sentences."""
+If the question is vague (like "why", "how", "what") and you have comment context, answer about that specific comment. If no context is available, ask for clarification about what specifically they want to know. Keep response conversational and helpful, 1-2 sentences max."""
 
         return self._call_falcon_ai(prompt)
 
