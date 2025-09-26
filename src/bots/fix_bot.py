@@ -362,17 +362,23 @@ IMPORTANT:
 
     async def _should_provide_fix(self, instruction: str) -> bool:
         """Use AI to decide if instruction requires code fixes or just an answer"""
-        prompt = f"""Analyze this user instruction and decide if they want code fixes or just an answer:
+        prompt = f"""Analyze this user instruction carefully:
 
 Instruction: {instruction}
 
-Respond with only "FIX" if they want code changes/fixes/implementations, or "ANSWER" if they want explanations/questions answered.
+Respond with ONLY "FIX" or "ANSWER".
+
+FIX = User wants actual code changes, implementations, or modifications
+ANSWER = User is asking questions, seeking opinions, or wants explanations
 
 Examples:
 - "fix the SQL injection" -> FIX
-- "add error handling" -> FIX  
+- "add error handling" -> FIX
+- "remove this function" -> FIX
+- "do you think this can be committed?" -> ANSWER
 - "why is this bad?" -> ANSWER
-- "what does this do?" -> ANSWER"""
+- "what does this code do?" -> ANSWER
+- "should I merge this?" -> ANSWER"""
         
         try:
             response = self._call_falcon_ai(prompt)
