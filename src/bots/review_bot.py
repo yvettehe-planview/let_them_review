@@ -52,16 +52,16 @@ class ReviewBot:
             # Generate and post AI summary
             ai_summary = self._get_ai_summary(pr.title, pr.body or "No description", all_changes)
             summary_text = f"🤖 **AI Summary:**\n{ai_summary}"
-            self._post_comment(repo_name, pr_number, summary_text, comment_id, comment_type)
-            review_comments.append(f"🤖 AI Summary:\n{ai_summary}")
+            summary_comment_id = self._post_comment(repo_name, pr_number, summary_text, comment_id, comment_type)
+            review_comments.append({"text": f"🤖 AI Summary:\n{ai_summary}", "comment_id": summary_comment_id})
 
             # Review each reviewable file
             for file in reviewable_files:
                 if file.patch:
                     ai_review = self._get_ai_review(file.filename, file.patch, custom_instruction)
                     review_text = f"🤖 **AI Review for {file.filename}:**\n{ai_review}"
-                    self._post_comment(repo_name, pr_number, review_text, comment_id, comment_type)
-                    review_comments.append(review_text)  # Return the same format as posted
+                    file_comment_id = self._post_comment(repo_name, pr_number, review_text, comment_id, comment_type)
+                    review_comments.append({"text": review_text, "comment_id": file_comment_id})
 
             # Handle case with no reviewable files
             if not reviewable_files:
@@ -157,19 +157,23 @@ class ReviewBot:
 
     def _post_comment(self, repo_name: str, pr_number: int, text: str, 
                      comment_id: int = None, comment_type: str = "issue_comment"):
-        """Post comment as reply or new comment based on type"""
+        """Post comment as reply or new comment and return the comment ID"""
         try:
             repo = self.github.get_repo(repo_name)
             pr = repo.get_pull(pr_number)
 
             if comment_id and comment_type == "review_comment":
                 try:
-                    pr.create_review_comment_reply(comment_id, text)
+                    comment = pr.create_review_comment_reply(comment_id, text)
+                    return comment.id
                 except Exception as e:
                     print(f"Failed to reply to review comment: {str(e)}")
-                    pr.create_issue_comment(text)
+                    comment = pr.create_issue_comment(text)
+                    return comment.id
             else:
-                pr.create_issue_comment(text)
+                comment = pr.create_issue_comment(text)
+                return comment.id
 
         except Exception as e:
             print(f"Error posting comment: {str(e)}")
+            return None

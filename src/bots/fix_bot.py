@@ -29,11 +29,22 @@ class FixBot:
                 self._post_comment(repo_name, pr_number, f"🤖 **FixBot:**\n{response}", comment_id, comment_type)
                 return [f"Direct response: {response}"]
             
-            # Process ReviewBot comments to create fixes
-            for comment in review_comments:
-                if isinstance(comment, str) and "🤖" in comment and "SUGGEST_FIX" in comment:
-                    # Only process ReviewBot's suggestions that need fixes
-                    fix_result = await self._create_suggested_fix(repo, pr, comment, custom_instruction, comment_id, comment_type)
+            # Process only the ReviewBot comments from this runtime
+            for review_comment in review_comments:
+                # Handle both old format (string) and new format (dict with comment_id)
+                if isinstance(review_comment, dict):
+                    comment_text = review_comment.get("text", "")
+                    comment_id = review_comment.get("comment_id")
+                elif isinstance(review_comment, str):
+                    comment_text = review_comment
+                    comment_id = None
+                else:
+                    continue
+                    
+                if "🤖" in comment_text and "SUGGEST_FIX" in comment_text:
+                    # Create fixes and reply to the specific comment
+                    fix_result = await self._create_suggested_fix(repo, pr, comment_text, 
+                                                                custom_instruction, comment_id, "issue_comment")
                     if fix_result and "Created" in fix_result:
                         fixes_applied.append(fix_result)
             
@@ -90,59 +101,35 @@ class FixBot:
         return None
     
     def _create_suggestions(self, pr, fixes: list, filename: str, file_patch: str, comment_id: int = None, comment_type: str = "issue_comment") -> int:
-        """Create GitHub suggestions for high-confidence fixes"""
-        suggestions_created = 0
+        """Create GitHub suggestions - reply to ReviewBot's comment with fixes"""
+        if not fixes:
+            return 0
+            
+        # Create a single reply with all suggestions
+        suggestions_text = f"🔧 **FixBot Suggestions for {filename}:**\n\n"
         
         for i, fix in enumerate(fixes):
-                if fix['confidence'] >= 0.9:
-                    confidence_emoji = "🟢"
-                elif fix['confidence'] >= 0.7:
-                    confidence_emoji = "🟡"
-                else:
-                    confidence_emoji = "🔴"  # Red circle for low confidence
-                guidance = self._get_guidance(fix['confidence'])
-                
-                # Always try to create clickable suggestions first
-                body = (
-                    f"🔧 **FixBot Suggestion #{i+1}** {confidence_emoji}\n\n"
-                    f"```suggestion\n{fix['code']}\n```\n\n"
-                    f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n\n"
-                    f"{guidance}"
-                )
-                # Try multiple line numbers to find one that works
-                line_numbers = [fix.get('line'), self._get_line_from_patch(file_patch), 1]
-                
-                success = False
-                for line_num in line_numbers:
-                    if line_num and line_num > 0:
-                        try:
-                            pr.create_review_comment(
-                                body=body,
-                                commit=pr.head.sha,
-                                path=filename,
-                                line=line_num
-                            )
-                            suggestions_created += 1
-                            success = True
-                            break
-                        except Exception:
-                            continue
-                
-                if not success:
-                    # Fallback to regular comment
-                    fallback_body = (
-                        f"🔧 **FixBot Suggestion #{i+1} for {filename}** {confidence_emoji}\n\n"
-                        f"```{filename.split('.')[-1]}\n{fix['code']}\n```\n\n"
-                        f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n\n"
-                        f"{guidance}"
-                    )
-                    try:
-                        pr.create_issue_comment(fallback_body)
-                        suggestions_created += 1
-                    except Exception:
-                        pass
+            confidence_emoji = "🟢" if fix['confidence'] >= 0.9 else "🟡" if fix['confidence'] >= 0.7 else "🔴"
+            guidance = self._get_guidance(fix['confidence'])
+            
+            suggestions_text += (
+                f"**Suggestion #{i+1}** {confidence_emoji}\n"
+                f"```{filename.split('.')[-1]}\n{fix['code']}\n```\n"
+                f"**Confidence:** {fix['confidence']:.0%} | **Issue:** {fix['issue']}\n"
+                f"{guidance}\n\n"
+            )
         
-        return suggestions_created
+        # Reply to ReviewBot's comment
+        if comment_id:
+            self._post_comment(pr.base.repo.full_name, pr.number, suggestions_text, comment_id, "issue_comment")
+            return len(fixes)
+        else:
+            # Fallback to new comment
+            try:
+                pr.create_issue_comment(suggestions_text)
+                return len(fixes)
+            except Exception:
+                return 0
     
     def _get_guidance(self, confidence: float) -> str:
         """Get acceptance guidance based on confidence"""
@@ -161,12 +148,10 @@ class FixBot:
             repo = self.github.get_repo(repo_name)
             pr = repo.get_pull(pr_number)
             
-            if comment_id and comment_type == "review_comment":
-                try:
-                    pr.create_review_comment_reply(comment_id, text)
-                except Exception as e:
-                    print(f"Failed to reply to review comment: {str(e)}")
-                    pr.create_issue_comment(text)
+            if comment_id:
+                # Create issue comment as reply (GitHub will show them in sequence)
+                pr.create_review_comment_reply(comment_id, text)
+                print(f"Posted reply to comment {comment_id}")
             else:
                 pr.create_issue_comment(text)
         except Exception as e:
@@ -212,7 +197,20 @@ class FixBot:
             
         try:
             response = self._call_falcon_ai(prompt)
-            fixes = json.loads(response)
+            
+            # Extract JSON from markdown code blocks if present
+            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # Try to find JSON array directly
+                json_match = re.search(r'\[\s*{[\s\S]*}\s*\]', response)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    json_str = response
+            
+            fixes = json.loads(json_str)
             
             valid_fixes = []
             for fix in fixes:
@@ -227,7 +225,7 @@ class FixBot:
             return valid_fixes[:3]
         except Exception as e:
             print(f"Failed to parse AI response: {str(e)}")
-            print(f"AI response was: {response[:200]}...")
+            print(f"Full AI response: {response}")
             return []
     
     async def _analyze_pr_for_fixes(self, repo, pr, instruction: str, custom_instruction: str = None, comment_id: int = None, comment_type: str = "issue_comment"):
@@ -265,9 +263,42 @@ class FixBot:
         
         return self._call_falcon_ai(prompt)
     
+    async def _find_comment_id(self, pr, review_comment_text: str) -> int:
+        """Find the GitHub comment ID for a specific review comment text"""
+        try:
+            # Get recent issue comments (last 10 to avoid scanning too many)
+            issue_comments = list(pr.get_issue_comments())[-10:]
+            
+            for comment in issue_comments:
+                if comment.body and comment.body.strip() == review_comment_text.strip():
+                    return comment.id
+            
+            return None
+        except Exception as e:
+            print(f"Error finding comment ID: {str(e)}")
+            return None
 
-    
     def _get_line_from_patch(self, patch: str) -> int:
-        """Extract line number from patch"""
-        match = re.search(r'@@\s*-\d+,?\d*\s*\+?(\d+)', patch)
-        return int(match.group(1)) if match else 1
+        """Extract line number from patch - find first added line"""
+        if not patch:
+            return 1
+            
+        lines = patch.split('\n')
+        current_line = 1
+        
+        for line in lines:
+            if line.startswith('@@'):
+                # Extract starting line number from hunk header  
+                match = re.search(r'@@\s*-\d+,?\d*\s*\+(\d+)', line)
+                if match:
+                    current_line = int(match.group(1))
+            elif line.startswith('+') and not line.startswith('+++'):
+                # Found first added line - this is where we can comment
+                print(f"Found added line at {current_line}: {line[:50]}...")
+                return current_line
+            elif not line.startswith('-') and not line.startswith('@@') and not line.startswith('+++') and not line.startswith('---'):
+                # Context line, increment counter
+                current_line += 1
+                
+        print(f"No added lines found, using hunk start: {current_line}")
+        return current_line

@@ -19,7 +19,7 @@ class CodeReviewSystem:
         review_comments = await self.review_bot.review_pr(repo_name, pr_number)
         print(f"Review completed with {len(review_comments)} comments")
         
-        # 2. Generate and apply fixes
+        # 2. Generate and apply fixes (pass the review_comments with comment_ids)
         print("Generating fixes...")
         fixes = await self.fix_bot.fix_code(repo_name, pr_number, review_comments)
         print(f"Created {len(fixes)} fix PRs")
