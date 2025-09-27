@@ -1,7 +1,7 @@
 # let_them_review
 Our project integrates two AI bots into GitHub's code review process: ReviewBot and FixBot. ReviewBot analyzes PRs, summarizes changes, and suggests code improvements, while FixBot automatically implements these suggestions pending human approval.
 
-## How to use it?
+# How to use it?
 # GitHub Actions - Automated Code Review
 
 This .github directory sets up GitHub Actions workflows that integrate two AI bots from the `let_them_review` repository. Real exmpale: https://github.com/Yarui-planview/Demo-project-for-hackathon-planview
