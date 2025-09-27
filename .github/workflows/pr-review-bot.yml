@@ -1,0 +1,42 @@
+name: PR Review Bot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout review bot repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'yvettehe-planview/let_them_review'
+          path: 'let_them_review'
+          token: ${{ secrets.GIT_TOKEN  }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r let_them_review/requirements.txt
+          pip install requests
+
+      - name: Run review bot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN  }}
+          FALCON_API_KEY: ${{secrets.FALCON_API_KEY}}
+        run: |
+          cd let_them_review
+          python run_review.py "${{ github.repository }}" "${{ github.event.number }}"
