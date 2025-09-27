@@ -1,0 +1,177 @@
+name: Comment Parser Bot
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  # Add workflow_dispatch for manual testing
+  workflow_dispatch:
+
+jobs:
+  parse-comment:
+    runs-on: ubuntu-latest
+    outputs:
+      bot_name: ${{ steps.parse.outputs.bot_name }}
+      instruction: ${{ steps.parse.outputs.instruction }}
+      should_proceed: ${{ steps.parse.outputs.should_proceed }}
+      pr_number: ${{ steps.parse.outputs.pr_number }}
+      comment_id: ${{ steps.parse.outputs.comment_id }}
+      comment_type: ${{ steps.parse.outputs.comment_type }}
+    
+    steps:
+      - name: Debug Event Context
+        run: |
+          echo "Event Name: ${{ github.event_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Actor: ${{ github.actor }}"
+          
+      - name: Parse comment
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('🚀 Workflow triggered!');
+            console.log('test');
+            console.log('Event name:', context.eventName);
+            console.log('Payload keys:', Object.keys(context.payload));
+            // Handle both issue comments and PR review comments
+            let prNumber, prOwner, commentAuthor, commentBody, commentId, commentType;
+            
+            if (context.payload.issue) {
+              // Regular PR comment (issue_comment event)
+              prNumber = context.payload.issue.number;
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              prOwner = pr.data.user.login;
+              commentAuthor = context.payload.comment.user.login;
+              commentBody = context.payload.comment.body;
+              commentId = context.payload.comment.id;
+              commentType = 'issue_comment';
+            } else if (context.payload.pull_request) {
+              // PR review comment (pull_request_review_comment event)
+              prNumber = context.payload.pull_request.number;
+              prOwner = context.payload.pull_request.user.login;
+              commentAuthor = context.payload.comment.user.login;
+              commentBody = context.payload.comment.body;
+              commentId = context.payload.comment.id;
+              commentType = 'review_comment';
+            } else {
+              console.log('❌ Unable to determine comment context');
+              core.setOutput('should_proceed', 'false');
+              return;
+            }
+            
+            console.log(`PR Owner: ${prOwner}`);
+            console.log(`Comment Author: ${commentAuthor}`);
+            console.log(`Comment Body: ${commentBody}`);
+            
+            // Check if comment is from bot
+            const isBot = commentAuthor.includes('bot') || commentAuthor.includes('[bot]');
+            
+            // Check if comment is from authorized user
+            const isFromPROwner = prOwner === commentAuthor;
+            const isFromRepoOwner = context.repo.owner === commentAuthor;
+            
+            // Check if user has write access (collaborator)
+            let hasWriteAccess = false;
+            try {
+              const permission = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: commentAuthor
+              });
+              hasWriteAccess = ['write', 'admin'].includes(permission.data.permission);
+            } catch (err) {
+              console.log('Could not check collaborator permissions:', err.message);
+            }
+            
+            const isAuthorized = isFromPROwner || isFromRepoOwner || hasWriteAccess;
+            
+            if (isBot) {
+              console.log('❌ Comment is from bot, ignoring');
+              core.setOutput('should_proceed', 'false');
+              return;
+            }
+            
+            if (!isAuthorized) {
+              console.log('❌ Comment is not from PR owner, repo owner, or collaborator with write access, ignoring');
+              core.setOutput('should_proceed', 'false');
+              return;
+            }
+            
+            // Check if comment contains bot mentions
+            let botName = '';
+            
+            // Extract text between @ and first space
+            const atMentionMatch = commentBody.match(/@(\S+)/);
+            if (atMentionMatch) {
+              const mentionText = atMentionMatch[1].toLowerCase();
+              console.log(`Found @ mention: ${mentionText}`);
+              
+              if (mentionText.includes('review')) {
+                botName = 'review';
+              } else if (mentionText.includes('fix')) {
+                botName = 'fix';
+              }
+            }
+            
+            if (botName) {
+              console.log(`✅ Found bot mention: ${botName}`);
+              core.setOutput('bot_name', botName);
+              core.setOutput('instruction', commentBody);
+              core.setOutput('pr_number', prNumber);
+              core.setOutput('comment_id', commentId);
+              core.setOutput('comment_type', commentType);
+              core.setOutput('should_proceed', 'true');
+            } else {
+              console.log('❌ No bot mention found');
+              core.setOutput('should_proceed', 'false');
+            }
+
+  trigger-bot:
+    needs: parse-comment
+    runs-on: ubuntu-latest
+    if: needs.parse-comment.outputs.should_proceed == 'true'
+    
+    steps:
+      - name: Checkout review bot repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'yvettehe-planview/let_them_review'
+          path: 'let_them_review'
+          token: ${{ secrets.GIT_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "let_them_review/requirements.txt" ]; then
+            pip install -r let_them_review/requirements.txt
+          fi
+          pip install requests
+
+      - name: Execute bot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GIT_TOKEN }}
+          FALCON_API_KEY: ${{ secrets.FALCON_API_KEY }}
+        run: |
+          cd let_them_review
+          echo "🤖 Executing bot with parameters:"
+          echo "  Bot Name: ${{ needs.parse-comment.outputs.bot_name }}"
+          echo "  Is{{ needs.parse-comment.outputs.comment_type }}"
+          
+          python3 bot_trigger.py \
+            --bot_name "${{ needs.parse-comment.outputs.bot_name }}" \
+            --instruction "${{ needs.parse-comment.outputs.instruction }}" \
+            --repo_name "${{ github.repository }}" \
+            --pr_number "${{ needs.parse-comment.outputs.pr_number }}" \
+            --comment_id "${{ needs.parse-comment.outputs.comment_id }}" \
+            --comment_type "${{ needs.parse-comment.outputs.comment_type }}"
